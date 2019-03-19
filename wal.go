@@ -29,6 +29,10 @@ type WAL struct {
 	dir      string
 	dirFile  *os.File
 	walFiles []*os.File
+	encoder  *encoder
+
+	curOffset uint32
+	curIndex  uint32
 }
 
 // Create creates a WAL ready for appending records.
@@ -91,6 +95,7 @@ func Create(dir string) (*WAL, error) {
 		dir:      dir,
 		dirFile:  dirFile,
 		walFiles: []*os.File{f},
+		encoder:  newEncoder(0, f),
 	}
 
 	err = w.writeCrc(0)
@@ -117,5 +122,23 @@ func (w *WAL) writeCrc(crc uint32) error {
 		return err
 	}
 
+	w.curOffset += 4
+
 	return w.lastFile().Sync()
+}
+
+// Append entry into WAL
+func (w *WAL) Append(entry *Entry) error {
+	body := entry.marshal()
+
+	n, err := w.encoder.encode(body)
+
+	if err != nil {
+		return err
+	}
+
+	w.curOffset += uint32(n)
+	w.curIndex = entry.index
+
+	return nil
 }

@@ -15,6 +15,11 @@ func TestCreate(t *testing.T) {
 
 	defer os.RemoveAll(p)
 
-	_, err = wal.Create(p)
+	w, err := wal.Create(p)
+	assert.Nil(t, err)
+
+	entry := wal.NewEntry(0, []byte("hello"))
+	err = w.Append(entry)
+
 	assert.Nil(t, err)
 }

@@ -1,6 +1,7 @@
 package wal
 
 import (
+	"encoding/binary"
 	"hash/crc32"
 	"os"
 )
@@ -19,12 +20,30 @@ func newEncoder(prevCrc uint32, f *os.File) *encoder {
 	}
 }
 
-func (e *encoder) encodeToFrame(payload []byte) *frame {
+func (e *encoder) encode(payload []byte) (int, error) {
+	// encode crc
 	crc := crc32.Update(e.crc, e.table, payload)
+	buf := make([]byte, 4)
+	binary.LittleEndian.PutUint32(buf, crc)
+
+	// encode length
+	buf2 := make([]byte, 4)
+	binary.LittleEndian.PutUint32(buf2, uint32(len(payload)+len(buf)))
+
+	frame := append(buf2, buf...)
+	frame = append(buf2, payload...)
+
+	n, err := e.f.Write(frame)
+	if err != nil {
+		return 0, err
+	}
+
+	err = e.f.Sync()
+	if err != nil {
+		return 0, err
+	}
 
 	e.crc = crc
-	return &frame{
-		crc:     crc,
-		payload: payload,
-	}
+
+	return n, err
 }
