@@ -6,28 +6,28 @@ import (
 )
 
 type Entry struct {
-	index   uint32
-	payload []byte
+	Index   uint32
+	Payload []byte
 }
 
 func NewEntry(index uint32, payload []byte) *Entry {
 	return &Entry{
-		index:   index,
-		payload: payload,
+		Index:   index,
+		Payload: payload,
 	}
 }
 
 func (e *Entry) marshal() []byte {
 	buffer := new(bytes.Buffer)
-	_ = binary.Write(buffer, binary.LittleEndian, e.index)
-	_, _ = buffer.Write(e.payload)
+	_ = binary.Write(buffer, binary.LittleEndian, e.Index)
+	_, _ = buffer.Write(e.Payload)
 	return buffer.Bytes()
 }
 
 func unmarshal(p []byte) *Entry {
 	index := binary.LittleEndian.Uint32(p)
 	return &Entry{
-		index:   index,
-		payload: p[4:],
+		Index:   index,
+		Payload: p[4:],
 	}
 }

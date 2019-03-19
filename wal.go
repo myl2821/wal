@@ -6,6 +6,8 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 
 	"go.uber.org/zap"
 )
@@ -26,10 +28,12 @@ func init() {
 // A just opened WAL is in read mode, and ready for reading records.
 // The WAL will be ready for appending after reading out all the previous records.
 type WAL struct {
+	sync.Mutex
+
 	dir      string
-	dirFile  *os.File
 	walFiles []*os.File
 	encoder  *encoder
+	decoder  *decoder
 
 	curOffset uint32
 	curIndex  uint32
@@ -76,7 +80,7 @@ func Create(dir string) (*WAL, error) {
 
 	walFilePath := filepath.Join(dir, walName(0, 0))
 
-	f, err := os.OpenFile(walFilePath, os.O_CREATE|os.O_WRONLY, 700)
+	f, err := os.OpenFile(walFilePath, os.O_CREATE|os.O_WRONLY, 0700)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +97,6 @@ func Create(dir string) (*WAL, error) {
 
 	w := &WAL{
 		dir:      dir,
-		dirFile:  dirFile,
 		walFiles: []*os.File{f},
 		encoder:  newEncoder(0, f),
 	}
@@ -129,6 +132,9 @@ func (w *WAL) writeCrc(crc uint32) error {
 
 // Append entry into WAL
 func (w *WAL) Append(entry *Entry) error {
+	w.Lock()
+	defer w.Unlock()
+
 	body := entry.marshal()
 
 	n, err := w.encoder.encode(body)
@@ -138,7 +144,52 @@ func (w *WAL) Append(entry *Entry) error {
 	}
 
 	w.curOffset += uint32(n)
-	w.curIndex = entry.index
+	w.curIndex = entry.Index
 
 	return nil
+}
+
+func Open(dir string) (*WAL, error) {
+	files, err := ioutil.ReadDir(dir)
+	walFiles := make([]*os.File, 0)
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+
+		if strings.HasSuffix(file.Name(), ".wal") {
+			p := filepath.Join(dir, file.Name())
+			f, err := os.Open(p)
+			if err != nil {
+				for _, f := range walFiles {
+					fUnlock(f)
+				}
+				return nil, err
+			}
+			flock(f)
+			walFiles = append(walFiles, f)
+		}
+	}
+
+	decoder, err := newDecoder(walFiles)
+	if err != nil {
+		return nil, err
+	}
+
+	return &WAL{
+		walFiles: walFiles,
+		decoder:  decoder,
+	}, nil
+}
+
+func (w *WAL) Read() (*Entry, error) {
+	return w.decoder.decode()
+}
+
+// Close WAL
+func (w *WAL) Close() {
+	for _, f := range w.walFiles {
+		_ = fUnlock(f)
+		_ = f.Close()
+	}
 }

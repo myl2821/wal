@@ -30,8 +30,8 @@ func (e *encoder) encode(payload []byte) (int, error) {
 	buf2 := make([]byte, 4)
 	binary.LittleEndian.PutUint32(buf2, uint32(len(payload)+len(buf)))
 
-	frame := append(buf2, buf...)
-	frame = append(buf2, payload...)
+	buf2 = append(buf2, buf...)
+	frame := append(buf2, payload...)
 
 	n, err := e.f.Write(frame)
 	if err != nil {
