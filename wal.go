@@ -1,6 +1,7 @@
 package wal
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -71,7 +72,7 @@ func Create(dir string) (*WAL, error) {
 
 	walFilePath := filepath.Join(dir, walName(0, 0))
 
-	f, err := os.OpenFile(walFilePath, os.O_CREATE|os.O_RDONLY, 700)
+	f, err := os.OpenFile(walFilePath, os.O_CREATE|os.O_WRONLY, 700)
 	if err != nil {
 		return nil, err
 	}
@@ -86,13 +87,35 @@ func Create(dir string) (*WAL, error) {
 		return nil, err
 	}
 
-	return &WAL{
+	w := &WAL{
 		dir:      dir,
 		dirFile:  dirFile,
 		walFiles: []*os.File{f},
-	}, nil
+	}
+
+	err = w.writeCrc(0)
+	if err != nil {
+		return nil, err
+	}
+
+	return w, nil
 }
 
 func walName(seq uint64, idx uint64) string {
 	return fmt.Sprintf("%016x-%016x.wal", seq, idx)
+}
+
+func (w *WAL) lastFile() *os.File {
+	return w.walFiles[len(w.walFiles)-1]
+}
+
+func (w *WAL) writeCrc(crc uint32) error {
+	var buf = make([]byte, 4)
+	binary.LittleEndian.PutUint32(buf, crc)
+	_, err := w.lastFile().Write(buf)
+	if err != nil {
+		return err
+	}
+
+	return w.lastFile().Sync()
 }
