@@ -1,7 +1,6 @@
 package wal_test
 
 import (
-	"io"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -35,17 +34,29 @@ func TestWAL(t *testing.T) {
 	w, err = wal.Open(p)
 	assert.Nil(t, err)
 
-	entry, err = w.Read()
+	entries, err := w.ReadAll(0)
 	assert.Nil(t, err)
-	assert.Equal(t, uint32(0), entry.Index)
-	assert.Equal(t, []byte("hello"), entry.Payload)
+	assert.Equal(t, uint64(0), entries[0].Index)
+	assert.Equal(t, []byte("hello"), entries[0].Payload)
+	assert.Equal(t, uint64(1), entries[1].Index)
+	assert.Equal(t, []byte("world"), entries[1].Payload)
 
-	entry, err = w.Read()
+	// write after read
+	entry = wal.NewEntry(2, []byte("123"))
+	err = w.Append(entry)
 	assert.Nil(t, err)
-	assert.Equal(t, uint32(1), entry.Index)
-	assert.Equal(t, []byte("world"), entry.Payload)
 
-	entry, err = w.Read()
-	assert.Nil(t, entry)
-	assert.Equal(t, io.EOF, err)
+	w.Close()
+
+	// Read
+	w, err = wal.Open(p)
+	assert.Nil(t, err)
+
+	entries, err = w.ReadAll(0)
+	assert.Equal(t, uint64(0), entries[0].Index)
+	assert.Equal(t, []byte("hello"), entries[0].Payload)
+	assert.Equal(t, uint64(1), entries[1].Index)
+	assert.Equal(t, []byte("world"), entries[1].Payload)
+	assert.Equal(t, uint64(2), entries[2].Index)
+	assert.Equal(t, []byte("123"), entries[2].Payload)
 }

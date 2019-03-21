@@ -2,7 +2,9 @@ package wal
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -35,8 +37,8 @@ type WAL struct {
 	encoder  *encoder
 	decoder  *decoder
 
-	curOffset uint32
-	curIndex  uint32
+	curSeq   uint64
+	curIndex uint64
 }
 
 // Create creates a WAL ready for appending records.
@@ -125,26 +127,37 @@ func (w *WAL) writeCrc(crc uint32) error {
 		return err
 	}
 
-	w.curOffset += 4
-
 	return w.lastFile().Sync()
 }
 
 // Append entry into WAL
 func (w *WAL) Append(entry *Entry) error {
+	if w.encoder == nil {
+		return errors.New("Not prepare to read")
+	}
+
 	w.Lock()
 	defer w.Unlock()
 
 	body := entry.marshal()
 
-	n, err := w.encoder.encode(body)
+	_, err := w.encoder.encode(body)
 
 	if err != nil {
 		return err
 	}
 
-	w.curOffset += uint32(n)
 	w.curIndex = entry.Index
+
+	offset, err := w.encoder.offset()
+
+	if err != nil {
+		return err
+	}
+
+	if offset > chunkSize {
+		return w.cut()
+	}
 
 	return nil
 }
@@ -152,12 +165,15 @@ func (w *WAL) Append(entry *Entry) error {
 func Open(dir string) (*WAL, error) {
 	files, err := ioutil.ReadDir(dir)
 	walFiles := make([]*os.File, 0)
+	seqMax := uint64(0)
+
 	for _, file := range files {
 		if file.IsDir() {
 			continue
 		}
 
-		if strings.HasSuffix(file.Name(), ".wal") {
+		seq, _, err := parseWALName(file.Name())
+		if err == nil {
 			p := filepath.Join(dir, file.Name())
 			f, err := os.Open(p)
 			if err != nil {
@@ -168,7 +184,15 @@ func Open(dir string) (*WAL, error) {
 			}
 			flock(f)
 			walFiles = append(walFiles, f)
+
+			if seq > seqMax {
+				seqMax = seq
+			}
 		}
+	}
+
+	if len(walFiles) == 0 {
+		return nil, errors.New("no WAL files")
 	}
 
 	decoder, err := newDecoder(walFiles)
@@ -177,13 +201,73 @@ func Open(dir string) (*WAL, error) {
 	}
 
 	return &WAL{
+		dir:      dir,
 		walFiles: walFiles,
 		decoder:  decoder,
+		curSeq:   seqMax,
 	}, nil
 }
 
-func (w *WAL) Read() (*Entry, error) {
-	return w.decoder.decode()
+func (w *WAL) ReadAll(start uint64) ([]*Entry, error) {
+	entries := make([]*Entry, 0)
+	for {
+		entry, err := w.decoder.decode()
+		if err != nil {
+			if err == io.EOF {
+				goto prepareToRead
+			}
+		}
+
+		if entry.Index >= start {
+			entries = append(entries, entry)
+		}
+	}
+
+prepareToRead:
+
+	offset, err := w.decoder.offset()
+	if err != nil {
+		return nil, err
+	}
+
+	w.Close()
+
+	files, err := ioutil.ReadDir(w.dir)
+	walFiles := make([]*os.File, 0)
+	seqMax := uint64(0)
+
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+
+		seq, _, err := parseWALName(file.Name())
+		if err == nil {
+			p := filepath.Join(w.dir, file.Name())
+			f, err := os.OpenFile(p, os.O_WRONLY, 0700)
+			if err != nil {
+				for _, f := range walFiles {
+					fUnlock(f)
+				}
+				return nil, err
+			}
+			flock(f)
+			walFiles = append(walFiles, f)
+
+			if seq > seqMax {
+				seqMax = seq
+			}
+		}
+	}
+
+	w.curSeq = seqMax
+	walFiles[len(w.walFiles)-1].Seek(offset, os.SEEK_SET)
+	w.walFiles = walFiles
+
+	w.encoder = newEncoder(w.decoder.crc, w.walFiles[len(w.walFiles)-1])
+	w.decoder = nil
+
+	return entries, nil
 }
 
 // Close WAL
@@ -192,4 +276,16 @@ func (w *WAL) Close() {
 		_ = fUnlock(f)
 		_ = f.Close()
 	}
+}
+
+func (w *WAL) cut() error {
+	return nil
+}
+
+func parseWALName(str string) (seq uint64, index uint64, err error) {
+	if !strings.HasSuffix(str, ".wal") {
+		return 0, 0, errors.New("bad WAL name")
+	}
+	_, err = fmt.Sscanf(str, "%016x-%016x.wal", &seq, &index)
+	return seq, index, err
 }

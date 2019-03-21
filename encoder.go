@@ -47,3 +47,7 @@ func (e *encoder) encode(payload []byte) (int, error) {
 
 	return n, err
 }
+
+func (e *encoder) offset() (int64, error) {
+	return e.f.Seek(0, os.SEEK_CUR)
+}

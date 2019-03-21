@@ -46,8 +46,8 @@ func (d *decoder) decode() (*Entry, error) {
 
 	f := d.files[d.fileIndex]
 
+	// read length
 	buf := make([]byte, 4)
-
 	n, err := f.Read(buf)
 	if err != nil {
 		if err == io.EOF {
@@ -65,9 +65,11 @@ func (d *decoder) decode() (*Entry, error) {
 	n = int(binary.LittleEndian.Uint32(buf))
 
 	if n == 0 {
+		d.files[d.fileIndex].Seek(-4, os.SEEK_CUR)
 		return nil, io.EOF
 	}
 
+	// read frame
 	buf = make([]byte, n)
 	nr, err := f.Read(buf)
 	if err != nil {
@@ -81,6 +83,7 @@ func (d *decoder) decode() (*Entry, error) {
 	crcStored := binary.LittleEndian.Uint32(buf)
 	blob := buf[4:]
 
+	// check crc
 	crc := crc32.Update(d.crc, d.table, blob)
 	if crc != crcStored {
 		return nil, errors.New("CRC Mismatch")
@@ -90,4 +93,8 @@ func (d *decoder) decode() (*Entry, error) {
 	entry := unmarshal(blob)
 
 	return entry, nil
+}
+
+func (d *decoder) offset() (int64, error) {
+	return d.files[d.fileIndex].Seek(0, os.SEEK_CUR)
 }
