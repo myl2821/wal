@@ -279,6 +279,34 @@ func (w *WAL) Close() {
 }
 
 func (w *WAL) cut() error {
+	nextSeq := w.curSeq + 1
+
+	walFilePath := filepath.Join(w.dir, walName(nextSeq, w.curIndex+1))
+
+	f, err := os.OpenFile(walFilePath, os.O_CREATE|os.O_WRONLY, 0700)
+	if err != nil {
+		return err
+	}
+
+	err = flock(f)
+	if err != nil {
+		return err
+	}
+
+	err = os.Truncate(walFilePath, chunkSize)
+	if err != nil {
+		return err
+	}
+
+	w.walFiles = append(w.walFiles, f)
+	w.encoder.f = f
+
+	err = w.writeCrc(w.encoder.crc)
+
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

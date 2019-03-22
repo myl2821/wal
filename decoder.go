@@ -40,9 +40,6 @@ func newDecoder(files []*os.File) (*decoder, error) {
 }
 
 func (d *decoder) decode() (*Entry, error) {
-	if d.fileIndex > len(d.files) {
-		return nil, io.EOF
-	}
 
 	f := d.files[d.fileIndex]
 
@@ -51,7 +48,31 @@ func (d *decoder) decode() (*Entry, error) {
 	n, err := f.Read(buf)
 	if err != nil {
 		if err == io.EOF {
+
+			if d.fileIndex >= len(d.files)-1 {
+				return nil, io.EOF
+			}
+
 			d.fileIndex++
+
+			buf := make([]byte, 4)
+
+			f = d.files[d.fileIndex]
+			n, err := f.Read(buf)
+			if err != nil {
+				return nil, err
+			}
+
+			if 4 != n {
+				return nil, io.EOF
+			}
+
+			crc := binary.LittleEndian.Uint32(buf)
+
+			if crc != d.crc {
+				return nil, errors.New("crc mismatch")
+			}
+
 			return d.decode()
 		}
 
