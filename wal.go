@@ -162,6 +162,7 @@ func (w *WAL) Append(entry *Entry) error {
 	return nil
 }
 
+// Open a wal directory and prepares to read entries
 func Open(dir string) (*WAL, error) {
 	files, err := ioutil.ReadDir(dir)
 	walFiles := make([]*os.File, 0)
@@ -208,6 +209,8 @@ func Open(dir string) (*WAL, error) {
 	}, nil
 }
 
+// ReadAll returns all wal entries begin with `start`
+// and prepares for appending
 func (w *WAL) ReadAll(start uint64) ([]*Entry, error) {
 	entries := make([]*Entry, 0)
 	for {
