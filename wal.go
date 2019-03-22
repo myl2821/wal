@@ -213,14 +213,26 @@ func Open(dir string) (*WAL, error) {
 // and prepares for appending
 func (w *WAL) ReadAll(start uint64) ([]*Entry, error) {
 	wfs := make([]*os.File, 0)
-	for _, file := range w.walFiles {
+
+	for i, file := range w.walFiles {
 		_, idx, err := parseWALName(file.Name())
 		if err != nil {
 			return nil, err
 		}
-		if idx >= start {
-			wfs = append(wfs, file)
+
+		if idx == start {
+			wfs = w.walFiles[i:]
+			break
 		}
+
+		if idx > start {
+			wfs = w.walFiles[i-1:]
+			break
+		}
+	}
+
+	if len(wfs) == 0 {
+		wfs = append(wfs, w.lastFile())
 	}
 
 	decoder, err := newDecoder(wfs)
