@@ -52,11 +52,9 @@ func TestWAL(t *testing.T) {
 	w, err = wal.Open(p)
 	assert.Nil(t, err)
 
-	entries, err = w.ReadAll(0)
-	assert.Equal(t, uint64(0), entries[0].Index)
-	assert.Equal(t, []byte("hello"), entries[0].Payload)
-	assert.Equal(t, uint64(1), entries[1].Index)
-	assert.Equal(t, []byte("world"), entries[1].Payload)
-	assert.Equal(t, uint64(2), entries[2].Index)
-	assert.Equal(t, []byte("123"), entries[2].Payload)
+	entries, err = w.ReadAll(1)
+	assert.Equal(t, uint64(1), entries[0].Index)
+	assert.Equal(t, []byte("world"), entries[0].Payload)
+	assert.Equal(t, uint64(2), entries[1].Index)
+	assert.Equal(t, []byte("123"), entries[1].Payload)
 }

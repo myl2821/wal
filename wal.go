@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,7 +18,8 @@ import (
 var logger *zap.SugaredLogger
 
 const (
-	chunkSize = 64 << 20 // 64MB
+	// chunkSize = 64 << 20 // 64MB
+	chunkSize = 4
 )
 
 func init() {
@@ -196,7 +198,6 @@ func Open(dir string) (*WAL, error) {
 		return nil, errors.New("no WAL files")
 	}
 
-	decoder, err := newDecoder(walFiles)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +205,6 @@ func Open(dir string) (*WAL, error) {
 	return &WAL{
 		dir:      dir,
 		walFiles: walFiles,
-		decoder:  decoder,
 		curSeq:   seqMax,
 	}, nil
 }
@@ -212,6 +212,25 @@ func Open(dir string) (*WAL, error) {
 // ReadAll returns all wal entries begin with `start`
 // and prepares for appending
 func (w *WAL) ReadAll(start uint64) ([]*Entry, error) {
+	wfs := make([]*os.File, 0)
+	for _, file := range w.walFiles {
+		_, idx, err := parseWALName(file.Name())
+		if err != nil {
+			return nil, err
+		}
+		if idx >= start {
+			wfs = append(wfs, file)
+		}
+	}
+
+	decoder, err := newDecoder(wfs)
+
+	if err != nil {
+		return nil, err
+	}
+
+	w.decoder = decoder
+
 	entries := make([]*Entry, 0)
 	for {
 		entry, err := w.decoder.decode()
@@ -315,6 +334,7 @@ func (w *WAL) cut() error {
 }
 
 func parseWALName(str string) (seq uint64, index uint64, err error) {
+	str = path.Base(str)
 	if !strings.HasSuffix(str, ".wal") {
 		return 0, 0, errors.New("bad WAL name")
 	}
