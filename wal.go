@@ -303,6 +303,7 @@ func (w *WAL) cut() error {
 
 	w.walFiles = append(w.walFiles, f)
 	w.encoder.f = f
+	w.curSeq = nextSeq
 
 	err = w.writeCrc(w.encoder.crc)
 
